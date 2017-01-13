@@ -1,0 +1,122 @@
+---
+title: "SARIMA"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+
+
+#SARIMA Model
+
+```{r,fig.height=5,fig.width=9, echo = FALSE}
+data<-read.table("JustinBieberIsMyHero_data.txt",header = T)
+data.all <- ts(data$All_Border, start=1995, frequency=12)
+data.train <-ts(data$All_Border[1:240],start = 1995, frequency=12)
+data.test <-ts(data$All_Border[241:259],start = 2015, frequency=12)
+resdiags <- function(res) # you give this function a vector containing residuals from a model
+{
+  par(mfcol=c(2,2)) # splits the view to show 4 plots
+  ts.plot(res) # time series plot of residuals
+  points(res) # points to make counting runs easier
+  abline(h=mean(res)) # mean line
+  qqnorm(res) #qq plot
+  qqline(res)
+  acf(res) #acf
+  acf(res, type="partial") #pacf
+}
+```
+
+
+
+
+```{r,fig.height=8,fig.width=10,echo = FALSE}
+#Differencing the data
+par(mfcol=c(3,1))
+plot(diff(data.train, lag=12), main = "Figure 1 Seasonal D = 1")
+plot(diff(diff(data.train, lag=12)), main = "Figure 2 Seasonal D = 1, ordinary d = 1")
+plot(diff(diff(data.train, lag=12), differences=2), main = "Figure 3 Seasonal D = 1, ordinary d = 2")
+#After one seasonal difference, the pattern is removed but still a drifting trend After adding an ordinary difference, it looks better but still not stationary, particularly around the change point. After a second ordinary difference it looks great so that is our differenced series.
+```
+
+
++ It can be easily observed, from either the original data plot or the ACF/PACF of linear residual, that the data has a period of 12 months. Therefore, we start a seasonal Differencing by $D = 12$;
+
++ After doing a seasonal difference in Figure 1, we can see that seasonality is well removed, but the trend is definitely not constant. So we apply an ordinary differencing, see Figure 2; The trend getting flat;  However, the mean around 2000 to 2003 seems not to be constant. So we apply another ordinary differencing. Now the mean looks constant in Ficure c. However, a risk is that variance is not constant. It flutuates a lot at 1998 to 2003. This is due to the original non-constant variance caused by change point.
+
+
++ We would like to fit data with a $SARIMA(p,2,q)\times (P,1,Q)_{12}$
+
+
++ Check the ACF an PACF after differencing:
+
+```{r,echo = FALSE,fig.height=5,fig.width=9}
+data.diff <- diff(diff(data.train, lag=12), differences=2)
+par(mfcol=c(1,2))
+acf(data.diff, lag.max=36)
+acf(data.diff, type="p", lag.max=36)
+```
+
++ Based on the shape and intial spikes, a series of candidate models are tested based on Sigma^2 and AIC:
+$\\$
+
+```{r, out.width = "350px",echo = FALSE}
+knitr::include_graphics("crop1.png")
+```
+
++ And then, we would select $ARMA(1,2) \times (0,1)_{12}$, $ARMA(1,2) \times (1,1)_{12}$, $ARMA(1,2) \times (1,2)_{12}$ to carry out residual diagnostics, because they are the most possible candidate for best model.
+
+```{r,fig.height=4,fig.width=4,echo = FALSE}
+diff.arma1 <- arima(data.diff,order=c(1,0,2),seasonal=list(order=c(0,0,1), period=12))
+diff.arma2 <- arima(data.diff,order=c(1,0,2),seasonal=list(order=c(1,0,1), period=12))
+diff.arma3 <- arima(data.diff,order=c(1,0,2),seasonal=list(order=c(1,0,2), period=12))
+```
+
+
++ $Test~1:\bf{ARMA(1,2)\times(0,1)_{12}}$
+
+```{r,fig.height=4,fig.width=4,echo = FALSE}
+resdiags(diff.arma1$res)
+```
+
++ $Test ~ 2: \bf{ARMA(1,2)\times(1,1)_{12}}$
+
+```{r,fig.height=4,fig.width=4,echo = FALSE}
+resdiags(diff.arma2$res)
+```
+
++ $Test 3: \bf{ARMA(1,2)\times(1,2)_{12}}$
+
+```{r,fig.height=4,fig.width=4,echo = FALSE}
+resdiags(diff.arma3$res)
+```
+
++ We can see that three models perform almost the same well in terms of residual diagnostics. We decide to choose $ARMA(1,2)\times(0,1)_{12}$ as our final model. This model performs really well in terms of removing correlation of residual, AIC and lower residual errors. However, it is still not perfect: The qqplot indicates the the residual is a little light tailed.  
+
+```{r,fig.height=3,fig.width=8,echo = FALSE}
+data.sarima <- arima(data.train,order=c(1,2,2),seasonal=list(order=c(0,1,1),frequency=12))
+data.sarima.fit <-data.train - data.sarima$res # creating fitted values
+plot(data.train, main = "Fitting of SARIMA(1,2,2)x(0,1,1)_12")
+points(data.sarima.fit, type="l", col="red")
+```
+
+
++ We can see that the data is fitted very well in generall, with 2 significant outliers at the end of 2002, and the summer of 2013.
+
++ Now we test the prediction ability of the model:
+
+```{r,fig.height=5,fig.width=8,echo=FALSE}
+pred.sarima <- predict(data.sarima, n.ahead=19)
+plot(data.test,ylim=c(1e+6,10e+6),main = "Prediction Inverval for SARIMA")
+points(pred.sarima$pred, type='l', col="red")
+points(pred.sarima$pred + 1.96*pred.sarima$se, type='l', col="blue")
+points(pred.sarima$pred - 1.96*pred.sarima$se, type='l', col="blue")
+points(pred.sarima$pred, col="red")
+points(pred.sarima$pred + 1.96*pred.sarima$se, col="blue")
+points(pred.sarima$pred - 1.96*pred.sarima$se, col="blue")
+#sum((data.test - pred.sarima$pred)^2) # PRESS
+```
+
++ The model performs no bad in prediction: all testing sets point falls in 95% prediction interval with a decent PRESS value 9.3127e+12. However, the model is obviously overestimate the trend, and the width of interval is increasing.
+
+\pagebreak

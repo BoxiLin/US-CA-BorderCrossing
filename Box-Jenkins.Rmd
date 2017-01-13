@@ -1,0 +1,181 @@
+---
+title: "Linear Regression + ARMA Residual"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r,echo = FALSE,fig.height=5,fig.width=9}
+data<-read.table("JustinBieberIsMyHero_data.txt",header = T)
+data.all <- ts(data$All_Border, start=1995, frequency=12)
+data.train <-ts(data$All_Border[1:240],start = 1995, frequency=12)
+data.test <-ts(data$All_Border[241:259],start = 2015, frequency=12)
+resdiags <- function(res) # you give this function a vector containing residuals from a model
+{
+  par(mfcol=c(2,2)) # splits the view to show 4 plots
+  ts.plot(res) # time series plot of residuals
+  points(res) # points to make counting runs easier
+  abline(h=mean(res)) # mean line
+  qqnorm(res) #qq plot
+  qqline(res)
+  acf(res) #acf
+  acf(res, type="partial") #pacf
+}
+```
+
+Although the data fits with Linear Model 2 pretty well, a clear correlation can be observed from the ACF and PACF of the Residual:
+
+```{r,echo = FALSE,fig.height=3,fig.width=9}
+t<-time(data.train)-1995
+t2 <- t^2
+mth <- as.factor(cycle(data.train))
+chg = c(rep(0,80),rep(1,160))
+data.reg<-lm(data.train~t2 +t*mth+ chg*t)
+data.reg0<-lm(data.train~t+t2+mth)
+par(mfrow = c(1,2))
+acf(data.reg$residuals,main = "ACF for Model 2") #acf
+acf(data.reg$residuals, main  = "PACF for Model 2",type="partial")
+```
+
+Based on the shape spikes of ACF/PACF, MA(1) and ARMA(1,1) are two plausible candidate residual models. Testing both of them:
+
+###Residual MA(1) VS ARMA(1,1)
+
+```{r,echo = FALSE,fig.height=5,fig.width=8}
+par(mfrow=c(2,1))
+
+X <- model.matrix(data.reg)
+data.regarma <- arima(data.train, order=c(1,0,0), xreg=X[,2:27])
+data.regarma.fit <- data.train - data.regarma$res # making fitted values
+plot(data.train,main="Fitting of Model 2 + MA(1)")
+points(t+1995, data.regarma.fit, type="l", col="red")
+
+
+data.regarma2 <- arima(data.train, order=c(1,0,1), xreg=X[,2:27])
+data.regarma.fit2 <- data.train - data.regarma2$res # making fitted values
+plot(data.train,main="Fitting of Model 2 + ARMA(1,1)")
+points(t+1995, data.regarma.fit2, type="l", col="red")
+```
+
+###Residual diagnostics - MA(1)
+
+```{r,echo = FALSE,fig.height=6,fig.width=6}
+resdiags(data.regarma$res)
+```
+
+AIC: 6853.409
+
+$\sigma^2$ = 1.340919e+22
+
+###Residual diagnostics - ARMA(1,1)
+
+```{r,echo = FALSE,fig.height=6,fig.width=6}
+
+resdiags(data.regarma2$res)
+
+##Correlation is almost in accetable area, but some out of 95% with seasonal pattern.
+##Have to use SARIMA
+```
+
+AIC: 6844.024
+
+$\sigma^2$ = 1.218349e+22
+
+We can see that by both models, correlation in residual are cleaned. But since ARMA(1,1) has a lower AIC and $\sigma^2$, we would like to select it as our residual model.
+
+##Prediction
+
+However, the prediction ability of this model is really weak:
+
+```{r,echo = FALSE,fig.height=4,fig.width=9}
+t.test <- time(data.test) - 1995
+t2.test <- t.test^2
+mth.test <- as.factor(cycle(data.test))
+chg.test <- rep(1, 19)
+temp <- lm(data.test~t2.test +t.test*mth.test+ chg.test*t.test)
+X.test <- model.matrix(temp)
+pred.regarma <- predict(data.regarma, n.ahead=19, newxreg=X.test[,2:27])
+plot(data.test,ylim=c(1e+6,10e+6),main="Prediction Interval for Model2 with ARMA(1,1) Res")
+points(t.test+1995,temp$fitted,col = "blue",pty = 19)
+points(pred.regarma$pred, type='l', col="red")
+points(pred.regarma$pred + 1.96*pred.regarma$se, type='l', col="blue")
+points(pred.regarma$pred - 1.96*pred.regarma$se, type='l', col="blue")
+points(pred.regarma$pred, col="red")
+points(pred.regarma$pred + 1.96*pred.regarma$se, col="blue")
+points(pred.regarma$pred - 1.96*pred.regarma$se, col="blue")
+#sum((data.test - pred.regarma$pred)^2) # PRESS
+### Some data is out of bound. Predictablity is worse than linear prediction
+```
+
+PRESS: 1.556803e+13
+
+According to the prediction plot, most testing set points are far away from prediction and about half of them fall out of 95% confident interval due to overfitting.
+
+Therefore, we would like to try to apply a different strategy: reducing the variates in linear model.
+
+Our simplified model is $data \sim time + time^2 + month + chg+ chg:time$. We removed all interact variates of $time:month$ since most of their parameters have no significant level to be rejected to be 0. And by the same process as above, we found that ARMA(1,1) is the best ARMA model for residual.
+
+```{r,echo = FALSE,fig.height=4,fig.width=9}
+t<-time(data.train)-1995
+t2 <- t^2
+mth <- as.factor(cycle(data.train))
+chg = c(rep(0,80),rep(1,160))
+data.reg<-lm(data.train~t+t2+mth + chg*t)
+X <- model.matrix(data.reg)
+data.regarma <- arima(data.train, order=c(1,0,1), xreg=X[,2:15])
+data.regarma.fit <- data.train - data.regarma$res # making fitted values
+
+t.test <- time(data.test) - 1995
+t2.test <- t.test^2
+mth.test <- as.factor(cycle(data.test))
+chg.test <- rep(1, 19)
+temp <- lm(data.test~t.test+t2.test+mth.test+chg.test*t.test)
+X.test <- model.matrix(temp)
+pred.regarma <- predict(data.regarma, n.ahead=19, newxreg=X.test[,2:15])
+plot(data.test,ylim=c(1e+6,10e+6),main="Prediction for Simplified Linear model + ARMA(1,1) Res")
+points(t.test+1995,temp$fitted,col = "blue",pty = 19)
+points(pred.regarma$pred, type='l', col="red")
+points(pred.regarma$pred + 1.96*pred.regarma$se, type='l', col="blue")
+points(pred.regarma$pred - 1.96*pred.regarma$se, type='l', col="blue")
+points(pred.regarma$pred, col="red")
+points(pred.regarma$pred + 1.96*pred.regarma$se, col="blue")
+points(pred.regarma$pred - 1.96*pred.regarma$se, col="blue")
+```
+
+The new model looks a little better in terms of prediction, at least all testing set points fall in 95% condidence interval with a lower PRESEE 1.145973e+13. However, the overfitting issue is still not solved. Most testing data are underestimated.
+
+
+So can we further simplify the linear model?
+
+
+The answer is no. If we take a look at the linear model's parameters:
+
+```{r,echo = FALSE}
+summary(temp)$coef
+```
+
+We can see that all parameters of interact terms have high significant levels, there is strong evidence to reject that they are 0.
+
+And also for actual data fitting and residual diagnostics:
+
+```{r, fig.height=4,fig.width=8}
+par(mfrow=c(1,1))
+plot(data.train,main="Fitting of Model 2 + ARMA(1,1)")
+points(t+1995, data.regarma.fit, type="l", col="red")
+```
+
+```{r,echo = FALSE,fig.height=6,fig.width=6}
+
+resdiags(data.regarma$res)
+#data.reg0<-lm(data.train~t+t2+mth)
+#plot(data.reg$residuals)
+#par(mfrow=c(2,1))
+```
+
+And the ACF/PACF of residual indicate that part of seasonality of data has been not able to be captured by data.
+
+Therefore, we can conclude that Linear Model + ARMA model could no work perfectly in  both model fitting and prediction simultaneously. When the model fits data well, the overfitting happens; when reducing variates to get a better prediction, model's ability to explain the seasonality decreases.
+
+Therefore, we would turn to fit a SARIMA model.
+
+

@@ -1,0 +1,14 @@
+---  
+title: My Report  
+output: 
+  pdf_document:
+    toc: yes 
+---
+
+```{r child = 'Box-Jenkins.Rmd'}
+```
+
+```{r child = 'SARIMA.Rmd'}
+```
+
+rmarkdown::render('report.Rmd')

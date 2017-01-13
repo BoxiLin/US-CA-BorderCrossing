@@ -1,0 +1,28 @@
+---  
+title: STAT443 Project Report  
+output: 
+  pdf_document:
+    toc: yes 
+---
+
+```{r child = 'Project-Data-File.Rmd'}
+```
+
+```{r child = 'MAHolt.Rmd'}
+```
+
+```{r child = 'Regression-Report.Rmd'}
+```
+
+```{r child = 'Box-Jenkins.Rmd'}
+```
+
+```{r child = 'SARIMA.Rmd'}
+```
+
+```{r child = 'Conclusion.Rmd'}
+```
+
+```{r}
+rmarkdown::render('report.Rmd')
+```
